@@ -1,171 +1,203 @@
 <div align="center">
-  <img src="assets/logo.png" width=600 alt="">
+  <img src="assets/logo.png" width=550 alt="FedPylot Logo">
 </div>
-
---------------------------------------
 
 <h2 align="center">
     <p>Federated Learning for Real-Time Object Detection in Internet of Vehicles</p>
 </h2>
 
 <p align="center">
-    <a href="https://github.com/CyprienQuemeneur/fedpylot/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3-green"></a>
-    <a href="https://arxiv.org/abs/2406.03611"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2406.03611-red"></a>
+    <a href="https://github.com/CyprienQuemeneur/fedpylot/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/badge/license-GPLv3.0-blue.svg"></a>
+    <a href="https://arxiv.org/abs/2406.03611"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2406.03611-b31b1b.svg"></a>
 </p>
 
-**Official repository** of:
-- [Cyprien Quéméneur](https://scholar.google.com/citations?hl=en&user=qQ5fKGgAAAAJ),
-[Soumaya Cherkaoui](https://scholar.google.be/citations?user=fW60_n4AAAAJ). 
-[**FedPylot: Navigating Federated Learning for Real-Time Object Detection in Internet of Vehicles**](https://arxiv.org/abs/2406.03611).
+**FedPylot** is an open-source lightweight MPI-based program designed to explore and simplify the federated training of real-time object detection models, particularly for the purpose of autonomous driving applications.
+If you're a young researcher or simply an enthusiast, integrating modern object detectors into advanced federated learning frameworks can be a complex and time-consuming endeavor, which might detract from your actual project.
+Hopefully, FedPylot can serve as an easy-to-use foundation and help quick-start your research! 🤗
 
-For questions or inquiries about this program, please contact
+For the full details of our experiments and findings, see our [paper](https://arxiv.org/abs/2406.03611).
+For questions or inquiries about FedPylot, you may contact
 [cyprien.quemeneur@protonmail.com](mailto:cyprien.quemeneur@protonmail.com).
 
 ## 📖 Features
 
-FedPylot supports federated optimization on a computer cluster where one federated participant matches one node. The
-shared object detection model is initialized by the central server using weights pre-trained on MS COCO. Model 
-evaluation is performed by the server on a set of unseen examples at the end of each round. We assume full-client
-participation, synchronous updates and state persistence.
+In FedPylot, federated optimization is performed on a HPC cluster, where each federated participant (client or server) maps to a compute node.
+The server is responsible for initializing the shared object detection model with weights pre-trained on MS COCO, aggregating model updates, and evaluating the joint model on a set of unseen examples at the end of each communication round.
+We assume full-client participation, synchronous updates, and state persistence between rounds.
 
-- Object detector: YOLOv7
-- Communication backend: MPI
-- Server-side optimizers: FedAvg, FedAvgM, FedAdagrad, FedAdam, FedYogi
-- Local optimizers: SGD, YOLOv7 default
-- Datasets: KITTI (IID), nuImages (non-IID)
+- **Object detector**: YOLOv7
+- **Communication backend**: MPI
+- **Server-side optimizers**: FedAvg, FedAvgM, FedAdagrad, FedAdam, FedYogi
+- **Local optimizers**: SGD, YOLOv7 default
+- **Datasets**: KITTI (IID), nuImages (non-IID)
 
-In addition, weights are reduced to half-precision during communications and protected using hybrid encryption
-(AES-GCM + RSA). More advanced model compression and privacy-preservation techniques are not currently supported.
-The default optimizer of YOLOv7 involves SGD with Nesterov momentum, weight decay and a one-cycle cosine annealing 
-policy for the learning rates.
-
-For more details on our experiments, please see our [paper](https://arxiv.org/abs/2406.03611).
+In addition, model updates are reduced to half-precision and protected using hybrid encryption (AES-GCM + RSA).
+More advanced compression and privacy-preservation techniques are not currently supported.
+The default optimizer of YOLOv7 involves SGD with Nesterov momentum, weight decay, and a one-cycle cosine annealing policy for the learning rates.
 
 ## 🐍 Installation
 
-We encourage to install FedPylot both locally and on your computer cluster, as a local env will be more suited for
-preparing the data and can help for prototyping.
+We recommend installing FedPylot both locally (for data preparation and prototyping) and on your HPC cluster (for running experiments).
 
 ```bash
 git clone https://github.com/CyprienQuemeneur/fedpylot.git
+cd fedpylot
 ```
 
-To install the necessary packages in your local virtual environment run:
+To set up your local virtual environment, run:
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Installing all the packages on your cluster can come with some subtleties, and we would advise to refer to the
-documentation of your cluster for package installation and loading.
+> [!NOTE]
+> Installing packages on an HPC cluster often has specific considerations.
+> You should refer to your cluster's documentation for best practices on package installation and module loading.
+> Ideally, the virtual environment should be installed outside the project directory on the cluster.
 
 ## ⚙️ Data Preparation
 
-We used two publicly available autonomous driving datasets in our paper: the 2D object detection subset of the KITTI
-Vision Benchmark Suite and nuImages, an extension of nuScenes dedicated to 2D object detection.
+FedPylot supports two prominent autonomous driving datasets out of the box:
 
-Preparing the data involve both converting the annotations to the YOLO format and splitting the samples among the
-federated participants. In our experiments, we assume that the server holds a separate validation set and is 
-responsible for evaluating the global model.
+- The 2D object detection subset of the KITTI Vision Benchmark Suite.
+- nuImages, an extension of nuScenes focused on 2D object detection.
 
-Data preparation should ideally be run locally. Splitting the original dataset will create a folder for each
-federated participants (server and clients) which will contain the samples and labels. Archiving the folders before
-sending them to the cluster is recommended and can be performed automatically by the preparation scripts (intermediate
-folders will not be deleted, ensure you have enough disk space). A good way to securely and reliably transfer a large
-volume of data to the cloud is to use a tool such as [Globus](https://www.globus.org/).
+Preparing your data involves:
+
+1. Converting annotations to the YOLO format.
+2. Splitting the samples and labels among the federated participants (server and clients).
+
+Run data preparation scripts locally to create a directory for each federated participant, containing their respective data samples and labels.
+Archiving these directories for transfer and storage on the cluster is highly recommended and can be automated by the scripts.
+For secure and reliable transfer of large datasets to your cluster, consider using a tool such as [Globus](https://www.globus.org/).
 
 #### KITTI
 
-First go to https://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=2d and create an account to download
-the 2D object detection subset of KITTI. You will need to download the data samples,
-`left color images of object data set (12 GB)`, and data labels, `training labels of object data set (5 MB)`, and unzip
-the files in the `datasets` subfolder of this program.
+Obtain the *left color images* and *training labels* for the 2D object detection task from the official [KITTI website](https://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=2d) (account required) and unzip them in the `datasets` directory of this program.
 
-By default, 25% of the training data is sent to the central server, as KITTI does not
-feature a predefined validation set. For the remaining data, we perform a balanced and IID split among 5 clients.
-The DontCare attribute is ignored. The random seed is fixed so that splitting is reproducible. To perform both the
-split and the annotation conversion, run the following:
+By default, 25% of the training data is allocated to the central server, as KITTI does not feature a predefined validation set.
+For the remaining data, we perform a balanced and IID split among 5 clients.
+The *DontCare* attribute is ignored, leaving 8 classes.
+The random seed is fixed for reproducible splits.
+To perform the split and annotation conversion (and optionally archive the output), run:
 
 ```bash
 python datasets/prepare_kitti.py --tar
 ```
 
-If you wish to modify our splitting strategy, simply edit `prepare_kitti.py`.
+If you wish to customize the splitting strategy, edit `prepare_kitti.py` accordingly.
 
 #### nuImages
 
-Go to https://nuscenes.org/nuimages and create an account, then download the samples and metadata (sweeps are not 
-needed), and unzip the files in the `datasets` subfolder of this program. Unlike KITTI, nuImages is organized
-as a relational database, and we will use the `nuscenes-devkit` to manipulate the files. For the devkit to work
-properly, you need to create a `nuimages` folder and move the folders corresponding to the samples and labels to it.
-The folder structure should then be the following:
-```
+Download the nuImages samples and metadata from the official [nuScenes website](https://nuscenes.org/nuimages) (account required) and unzip them in the `datasets` directory of this program.
+Sweeps (non-keyframes) are not annotated and were not included in our experiments.
+nuImages is structured as a relational database, so this setup uses the [nuscenes-devkit](https://github.com/nutonomy/nuscenes-devkit) to manipulate the files.
+For the devkit to work properly, you need to create a `nuimages` directory and arrange the files as follows:
+
+```text
 /datasets/nuimages
-    samples	- Sensor data for keyframes (annotated images).
-    v1.0-train  -  JSON tables that include all the metadata and annotations for the training set.
-    v1.0-val    -  JSON tables that include all the metadata and annotations for the validation set.
+    samples    -  Sensor data for keyframes (annotated images).
+    v1.0-train -  JSON tables that include all the metadata and annotations for the training set.
+    v1.0-val   -  JSON tables that include all the metadata and annotations for the validation set.
 ```
 
-nuImages predefined validation set is stored on the server, while the training data is split non-IID
-among 10 clients based on the locations and timeframes at which the data samples were captured.
+By default, the predefined nuImages validation set is assigned to the server, while the training data is split non-IID among 10 clients based on capture location and timeframes, to simulate realistic data heterogeneity.
 
-Run the following to create the split which retains only 10 classes based on the nuScenes competition:
+To create splits retaining 10 classes based on the nuScenes competition map, run:
+
 ```bash
 python datasets/prepare_nuimages.py --class-map 10 --tar
 ```
 
-And the following to retain the full long-tail distribution with 23 classes:
+To create splits retaining the full long-tail distribution with all 23 classes, run:
+
 ```bash
 python datasets/prepare_nuimages.py --class-map 23 --tar
 ```
 
-If you wish to modify our splitting strategy, simply edit `prepare_nuimages.py`.
+If you wish to customize the splitting strategy, edit `prepare_nuimages.py` accordingly.
 
-## 🚀 Running a Job
+## 🚀 Launching a Job
 
-We provide template job scripts for the centralized and the federated settings, assuming the cluster supports the
-Slurm Workload Manager. We use official pre-trained weights to initialize an experiment. Downloading 
-the appropriate weights is normally performed by the script that launches the job, but you need to do it manually if
-Internet connexions are not available on the computing nodes of your cluster. FedPylot supports all YOLOv7 variants.
-For example, to download pre-trained weights for YOLOv7-tiny run the following:
+We provide Slurm job script templates for both centralized and federated settings.
+Experiments are initialized using official YOLOv7 pre-trained weights.
+
+Before training, data is copied to the local storage of the compute node(s).
+For federated experiments, `scatter_data.py` (an MPI script) handles dispatching the correct local datasets to each participant.
+
+#### Pre-trained weights
+
+The job scripts typically download model pre-trained weights.
+If your cluster's compute nodes lack internet access, download them manually beforehand. FedPylot supports all YOLOv7 variants.
+For example, to download weights to initialize YOLOv7-tiny, run:
 
 ```bash
 bash weights/get_weights.sh yolov7-tiny
 ```
 
-To launch a federated experiment, you will need to modify `run_federated.sh` to fit your cluster's requirements and
-choose the experimental settings, then run the command:
+#### Running an experiment
+
+To launch a federated experiment, modify `run_federated.sh` to suit your cluster's requirements and desired experimental settings.
+Then submit:
 
 ```bash
 sbatch run_federated.sh
 ```
 
-Similarly, to perform centralized learning, edit `run_centralized.sh` and then execute:
+Similarly, for the centralized learning baseline, edit `run_centralized.sh` and submit:
 
 ```bash
 sbatch run_centralized.sh
 ```
 
-In all cases, the data are copied to the local storage of the node(s) before training begins. For the federated setting,
-this is performed with a separate MPI script `scatter_data.py`, which ensures that the local datasets are dispatched to
-the appropriate federated participants.
+#### Options
+
+The federated learning settings are as follows:
+
+- `--nrounds`: Number of communication rounds (Default: 30).
+- `--epochs`: Local training epochs per client per round (Default: 5).
+- `--server-opt`: Server-side optimizer choice (Default: fedavg).
+- `--server-lr`: Server-side learning rate (Default: 1.0).
+- `--tau`: Server-side adaptivity for FedAdagrad, FedAdam, FedYogi (Default: 0.001).
+- `--beta`: Server-side momentum for FedAvgM (Default: 0.1).
+
+The core object detection settings are as follows:
+
+- `--architecture`: Choice of object detector architecture (Default: yolov7).
+- `--weights`: Path to pre-trained weights (e.g., `weights/yolov7/yolov7_training.pt`).
+- `--data`: Path to dataset YAML file (e.g., `data/kitti.yaml`).
+- `--bsz-train`: Training batch size (Default: 32).
+- `--bsz-val`: Validation batch size (Default: 32).
+- `--img`: Image size in pixels with letterbox resizing (Default: 640).
+- `--conf`: Object confidence threshold for detection (Default: 0.001).
+- `--iou`: IoU threshold for NMS (Default: 0.65).
+- `--cfg`: Path to model YAML file (Default: `yolov7/cfg/training/yolov7.yaml`).
+- `--hyp`: Path to hyperparameters YAML file (e.g., `data/hyps/hyp.scratch.clientsgd.yaml`).
+- `--workers`: Number of data loading workers (Default: 8).
+
+More advanced options for object detection are available in `yolov7/train.py` and `yolov7/train_aux.py`.
 
 ## 🎓 Citation
-If you find FedPylot is useful in your research or applications, please consider giving us a star 🌟 and citing our
-paper.
 
-```latex
-@article{fedpylot2024,
-      title = {{FedPylot}: Navigating Federated Learning for Real-Time Object Detection in {Internet} of {Vehicles}}, 
-      author = {Quéméneur, Cyprien and Cherkaoui, Soumaya},
-      journal = {arXiv preprint arXiv:2406.03611},
-      year = {2024}
+If you find FedPylot is useful in your research or applications, consider giving us a star 🌟 and citing our paper.
+
+```bibtex
+@article{quemeneur2024fedpylot,
+  title={{FedPylot}: Navigating Federated Learning for Real-Time Object Detection in Internet of Vehicles}, 
+  author={Quéméneur, Cyprien and Cherkaoui, Soumaya},
+  journal={arXiv preprint arXiv:2406.03611},
+  year={2024}
 }
 ```
 
 ## 🤝 Acknowledgements
-We sincerely thank the authors of [YOLOv7](https://github.com/WongKinYiu/yolov7) for providing their code to
-the community!
+
+- We sincerely thank the authors of [YOLOv7](https://github.com/WongKinYiu/yolov7) for providing their code to the community!
+
+- FedPylot was first released as part of my Master's thesis at the [LINCS laboratory](https://lincslab.ca/) of [Polytechnique Montréal](https://polymtl.ca/), under the supervision of Prof. [Soumaya Cherkaoui](https://scholar.google.be/citations?user=fW60_n4AAAAJ).
 
 ## 📜 License
-FedPylot is released under the [GPL-3.0 Licence](LICENSE).
+
+FedPylot is released under the [GPL-3.0 License](LICENSE).
