@@ -56,6 +56,8 @@ def train(hyp, opt, device, tb_writer=None):
     with open(save_dir / 'hyp.yaml', 'w') as f:
         yaml.dump(hyp, f, sort_keys=False)
     with open(save_dir / 'opt.yaml', 'w') as f:
+        print("DUMPING OPT _-------------------------------------------------------------")
+        print(vars(opt))
         yaml.dump(vars(opt), f, sort_keys=False)
 
     # Configure
@@ -70,7 +72,9 @@ def train(hyp, opt, device, tb_writer=None):
     loggers = {'wandb': None}  # loggers dict
     if rank in [-1, 0]:
         opt.hyp = hyp  # add hyperparameters
-        run_id = torch.load(weights, map_location=device).get('wandb_id') if weights.endswith('.pt') and os.path.isfile(weights) else None
+        torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+        run_id = (torch.load(weights, map_location=device, weights_only=False).get('wandb_id') 
+          if weights.endswith('.pt') and os.path.isfile(weights) else None)
         wandb_logger = WandbLogger(opt, Path(opt.save_dir).stem, run_id, data_dict)
         loggers['wandb'] = wandb_logger.wandb
         data_dict = wandb_logger.data_dict
@@ -86,7 +90,8 @@ def train(hyp, opt, device, tb_writer=None):
     if pretrained:
         with torch_distributed_zero_first(rank):
             attempt_download(weights)  # download if not found locally
-        ckpt = torch.load(weights, map_location=device)  # load checkpoint
+        torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+        ckpt = torch.load(weights, map_location=device, weights_only=False)  # load checkpoint   
         model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
         exclude = ['anchor'] if (opt.cfg or hyp.get('anchors')) and not opt.resume else []  # exclude keys
         state_dict = ckpt['model'].float().state_dict()  # to FP32
@@ -554,7 +559,7 @@ def train(hyp, opt, device, tb_writer=None):
                 results, _, _ = test.test(opt.data,
                                           batch_size=batch_size * 2,
                                           imgsz=imgsz_test,
-                                          conf_thres=0.001,
+                                          conf_thres=0.01, #0.001
                                           iou_thres=0.7,
                                           model=attempt_load(m, device).half(),
                                           single_cls=opt.single_cls,
@@ -625,6 +630,7 @@ if __name__ == '__main__':
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     opt = parser.parse_args()
 
+
     # Set DDP variables
     opt.world_size = int(os.environ['WORLD_SIZE']) if 'WORLD_SIZE' in os.environ else 1
     opt.global_rank = int(os.environ['RANK']) if 'RANK' in os.environ else -1
@@ -649,7 +655,10 @@ if __name__ == '__main__':
         assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
         opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
         opt.name = 'evolve' if opt.evolve else opt.name
-        opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
+        # opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
+        opt.save_dir = opt.project + f"/train-client{opt.client_rank}/"
+        # print(f"SaveCdirectory: {opt.save_dir}")
+
 
     # DDP mode
     opt.total_batch_size = opt.batch_size

@@ -18,6 +18,7 @@ from utils.metrics import ap_per_class, ConfusionMatrix
 from utils.loss import ComputeLoss
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized, TracedModel
+from utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
 
 
 def test(data,
@@ -47,6 +48,7 @@ def test(data,
     training = model is not None
     if training:  # called by train.py
         device = next(model.parameters()).device  # get model device
+        print("called from training")
 
     else:  # called directly
         set_logging()
@@ -82,7 +84,10 @@ def test(data,
 
     # Logging
     log_imgs = 0
+    print("WILL IT LOG _----------------------")
+
     if wandb_logger and wandb_logger.wandb:
+        print("YES IT WILLLLLLLLLLLLL!!!!")
         log_imgs = min(wandb_logger.log_imgs, 100)
     # Dataloader
     if not training:
