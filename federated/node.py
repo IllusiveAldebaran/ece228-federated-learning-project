@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from mpi4py import MPI
 import torch
+import numpy as np
 import yaml
 
 from models.yolo import Model
@@ -25,15 +26,10 @@ class Node:
     def __init__(self, rank: int) -> None:
         """Initialize the node with its rank, device, public and private keys."""
         self.rank = rank
-        if torch.cuda.is_available():
-            num_gpus = torch.cuda.device_count()
-            if rank > num_gpus :
-                print(f'ERROR: Rank {rank} is too high for {num_gpus} cuda devices')
-                print(f'Stop and rerun')
-            torch.cuda.set_device(rank)
-            self.device = f'cuda:{rank}'
-        else:
-            self.device = 'cpu'
+        # Enable debug
+        #torch.autograd.set_detect_anomaly(True)
+        torch.cuda.set_device(self.rank)
+        self.device = 'cuda:' + str(self.rank) if torch.cuda.is_available() else 'cpu'
         self._ckpt = None
         self._ckpt_reparam = None
         self._private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -51,7 +47,7 @@ class Node:
 
     def get_device_info(self) -> None:
         """Print the device information."""
-        if self.device == 'cuda' or self.device == f'cuda:{self.rank}' :
+        if self.device == 'cuda:' + str(self.rank):
             device_id = torch.cuda.current_device()
             properties = torch.cuda.get_device_properties(device_id)
             print(f'Node of rank {self.rank}: '
@@ -203,7 +199,7 @@ class Node:
         """Evaluate the model on the validation set held by the node."""
         weights = f'{saving_path}/weights/eval-kround{kround}.pt'
         torch.save(self._ckpt_reparam, weights)
-        os.system(
+        res = os.popen(
             f'python ./yolov7/test.py'
             f' --kround {kround}'
             f' --saving-path {saving_path}'
@@ -217,7 +213,9 @@ class Node:
             f' --project {saving_path}/run/'
             f' --name eval-kround{kround}'
             f' --no-trace'
-        )
+        ).read()
+
+        print(f'Node of rank {self.rank} evaluation debug text:\n{res}')
 
 
 class Server(Node):
@@ -282,7 +280,8 @@ class Server(Node):
 
     def initialize_model(self, weights: str) -> None:
         """Initialize the checkpoint from a pretrained weights file."""
-        self._ckpt = torch.load(weights, map_location=self.device)
+        torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+        self._ckpt = torch.load(weights, map_location=self.device, weights_only=False)
 
     def get_weights(self, metadata: bool) -> list[tuple[bytes, bytes, bytes]]:
         """Return the weights encrypted with AES, the tag, and the nonce for each client."""
@@ -316,6 +315,7 @@ class Server(Node):
         delta_t = copy.deepcopy(self._ckpt['model'].state_dict())
         for key in delta_t.keys():
             delta_it_weighted = [delta_it[key] * (ni / n) for delta_it, ni in zip(updates, nsamples_list)]
+            delta_it_weighted = [delta_it_weighted[i].to(self.device) for i in range(len(delta_it_weighted))]
             delta_t[key] = torch.sum(torch.stack(delta_it_weighted), dim=0)
         return delta_t
 
@@ -380,6 +380,7 @@ class Server(Node):
     def aggregate(self, state_dicts_encrypted: list[tuple[bytes, bytes, bytes, int]]) -> None:
         """Compute the weights for the next communication round using the clients' local updates."""
         updates, nsamples_list = self.__decrypt_updates(state_dicts_encrypted)
+        print("AGGREGATING")
         delta_t = self.__compute_pseudo_gradient(updates, nsamples_list)
         if self.server_opt == 'fedavg':
             new_sd = self.__fedavg(delta_t)
@@ -466,6 +467,7 @@ class Client(Node):
     def train(self, nrounds: int, kround: int, epochs: int, architecture: str, data: str, bsz_train: int, imgsz: int,
               cfg: str, hyp: str, workers: int, saving_path: str) -> None:
         """Train the model on the local training set and store the new checkpoint and update."""
+       
         end_weights = f'{saving_path}/run/train-client{self.rank}/weights/last.pt'
         if architecture in ['yolov7-tiny', 'yolov7', 'yolov7x']:
             script_path = './yolov7/train.py'
@@ -477,7 +479,24 @@ class Client(Node):
             # Initialize the training loop and perform the first round of training
             begin_weights = f'{saving_path}/weights/train-kround{kround}-client{self.rank}.pt'
             torch.save(self._ckpt, begin_weights)
-            os.system(
+            # os.system(
+            #     f'python {script_path}'
+            #     f' --client-rank {self.rank}'
+            #     f' --round-length {epochs}'
+            #     f' --batch-size {bsz_train}'
+            #     f' --epochs {nrounds * epochs}'
+            #     f' --data {data}'
+            #     f' --img {imgsz} {imgsz}'
+            #     f' --cfg {cfg}'
+            #     f' --weights {begin_weights}'
+            #     f' --hyp {hyp}'
+            #     f' --workers {workers}'
+            #     f' --project {saving_path}/run/'
+            #     f' --name train-client{self.rank}'
+            #     f' --notest'
+            # )
+            
+            res = os.popen(
                 f'python {script_path}'
                 f' --client-rank {self.rank}'
                 f' --round-length {epochs}'
@@ -492,13 +511,17 @@ class Client(Node):
                 f' --project {saving_path}/run/'
                 f' --name train-client{self.rank}'
                 f' --notest'
-            )
+            ).read()
+
+            print("Training output for client", self.rank, ":\n", res)
+
         else:
             # Resume training with the new set of weights
             begin_weights = f'{saving_path}/run/train-client{self.rank}/weights/last.pt'
             torch.save(self._ckpt, begin_weights)
             os.system(f'python {script_path} --resume {begin_weights}')
-        new_ckpt = torch.load(end_weights, map_location=self.device)
+        torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+        new_ckpt = torch.load(end_weights, map_location=self.device, weights_only=False)
         # Compute the local update: delta_it = w_t - w_it
         w_it = new_ckpt['model'].state_dict()
         if kround == 0:

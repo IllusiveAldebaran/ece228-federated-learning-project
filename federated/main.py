@@ -12,6 +12,10 @@ import yaml
 
 from node import Client, Node, Server
 
+# debugging
+#import pdb; pdb.set_trace()
+
+
 
 def init_node(rank: int, server_opt: str, server_lr: float, tau: float, beta: float) -> Node:
     """Initialize a node (client or server) based on its rank."""
@@ -79,6 +83,7 @@ def federated_loop(node: Node, nrounds: int, epochs: int, saving_path: str, arch
         # Server level computation (server optimization, re-parameterization, and evaluation on the validation set)
         if node.rank == 0:
             sd_encrypted.pop(0)
+            #breakpoint()  # Automatically calls the debugger DEBUG
             node.aggregate(sd_encrypted)
             node.reparameterize(architecture)
             node.test(kround, saving_path, data, bsz_val, imgsz, conf_thres, iou_thres)
@@ -149,7 +154,7 @@ if __name__ == "__main__":
     share_public_keys(node)
 
     # Create saving folder
-    saving_path = 'experiments'
+    saving_path = 'experiments/client'  + str(rank)
     os.makedirs(saving_path)
     os.makedirs(saving_path + '/weights/')
     os.makedirs(saving_path + '/run/')
