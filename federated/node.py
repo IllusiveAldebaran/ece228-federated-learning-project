@@ -25,7 +25,15 @@ class Node:
     def __init__(self, rank: int) -> None:
         """Initialize the node with its rank, device, public and private keys."""
         self.rank = rank
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        if torch.cuda.is_available():
+            num_gpus = torch.cuda.device_count()
+            if rank > num_gpus :
+                print(f'ERROR: Rank {rank} is too high for {num_gpus} cuda devices')
+                print(f'Stop and rerun')
+            torch.cuda.set_device(rank)
+            self.device = f'cuda:{rank}'
+        else:
+            self.device = 'cpu'
         self._ckpt = None
         self._ckpt_reparam = None
         self._private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -43,12 +51,12 @@ class Node:
 
     def get_device_info(self) -> None:
         """Print the device information."""
-        if self.device == 'cuda':
+        if self.device == 'cuda' or self.device == f'cuda:{self.rank}' :
             device_id = torch.cuda.current_device()
             properties = torch.cuda.get_device_properties(device_id)
             print(f'Node of rank {self.rank}: '
                   f'Found {torch.cuda.device_count()} GPU(s) available. '
-                  f'Using GPU {device_id} ({properties.name}) '
+                  f'Using GPU {device_id} ({properties.name}), Choosing {self.rank} GPU'
                   f'of compute capability {properties.major}.{properties.minor} with '
                   f'{properties.total_memory / 1e9:.1f}Gb total memory.')
         else:

@@ -70,7 +70,10 @@ def train(hyp, opt, device, tb_writer=None):
     loggers = {'wandb': None}  # loggers dict
     if rank in [-1, 0]:
         opt.hyp = hyp  # add hyperparameters
-        run_id = torch.load(weights, map_location=device).get('wandb_id') if weights.endswith('.pt') and os.path.isfile(weights) else None
+        #run_id = torch.load(weights, map_location=device).get('wandb_id') if weights.endswith('.pt') and os.path.isfile(weights) else None
+        torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+        run_id = (torch.load(weights, map_location=device, weights_only=False).get('wandb_id') 
+          if weights.endswith('.pt') and os.path.isfile(weights) else None)
         wandb_logger = WandbLogger(opt, Path(opt.save_dir).stem, run_id, data_dict)
         loggers['wandb'] = wandb_logger.wandb
         data_dict = wandb_logger.data_dict
@@ -86,7 +89,10 @@ def train(hyp, opt, device, tb_writer=None):
     if pretrained:
         with torch_distributed_zero_first(rank):
             attempt_download(weights)  # download if not found locally
-        ckpt = torch.load(weights, map_location=device)  # load checkpoint
+        #ckpt = torch.load(weights, map_location=device)  # load checkpoint
+        # Around line 97 (update this)
+        torch.serialization.add_safe_globals([np.core.multiarray._reconstruct])
+        ckpt = torch.load(weights, map_location=device, weights_only=False)  # load checkpoint
         model = Model(opt.cfg or ckpt['model'].yaml, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
         exclude = ['anchor'] if (opt.cfg or hyp.get('anchors')) and not opt.resume else []  # exclude keys
         state_dict = ckpt['model'].float().state_dict()  # to FP32
@@ -97,7 +103,20 @@ def train(hyp, opt, device, tb_writer=None):
         model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
     with torch_distributed_zero_first(rank):
         check_dataset(data_dict)  # check
-    train_path = data_dict['train'] + f'/client{opt.client_rank}/images'
+    #train_path = data_dict['train'] + f'/client{opt.client_rank}/images'
+
+    ##
+    # For centralized training, use client1 data when client_rank is 0
+    #client_folder = 'client1' if opt.client_rank == 0 or opt.client_rank is None else f'client{opt.client_rank}'
+    #train_path = data_dict['train'] + f'/{client_folder}/images'
+
+    ##
+
+    client_folder = 'all_clients' if opt.client_rank == 0 or opt.client_rank is None else f'client{opt.client_rank}'
+    train_path = data_dict['train'] + f'/{client_folder}/images'
+
+    ##
+
     test_path = data_dict['val'] + '/server/images'
 
     # Freeze
@@ -109,7 +128,7 @@ def train(hyp, opt, device, tb_writer=None):
             v.requires_grad = False
 
     # Optimizer
-    nbs = 64  # nominal batch size
+    nbs = 128  # nominal batch size
     accumulate = max(round(nbs / total_batch_size), 1)  # accumulate loss before optimizing
     hyp['weight_decay'] *= total_batch_size * accumulate / nbs  # scale weight_decay
     logger.info(f"Scaled weight_decay = {hyp['weight_decay']}")
@@ -299,13 +318,14 @@ def train(hyp, opt, device, tb_writer=None):
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    scaler = amp.GradScaler(enabled=cuda)
+    scaler = amp.GradScaler(enabled=True)
     compute_loss_ota = ComputeLossOTA(model)  # init loss class
     compute_loss = ComputeLoss(model)  # init loss class
     logger.info(f'Image sizes {imgsz} train, {imgsz_test} test\n'
                 f'Using {dataloader.num_workers} dataloader workers\n'
                 f'Logging results to {save_dir}\n'
                 f'Starting training for {epochs} epochs...')
+    print(f"wdir for client {opt.client_rank}: {wdir}")
     torch.save(model, wdir / 'init.pt')
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
@@ -554,8 +574,8 @@ def train(hyp, opt, device, tb_writer=None):
                 results, _, _ = test.test(opt.data,
                                           batch_size=batch_size * 2,
                                           imgsz=imgsz_test,
-                                          conf_thres=0.001,
-                                          iou_thres=0.7,
+                                          conf_thres=0.4, # 0.001 is default
+                                          iou_thres=0.3,
                                           model=attempt_load(m, device).half(),
                                           single_cls=opt.single_cls,
                                           dataloader=testloader,
@@ -649,7 +669,9 @@ if __name__ == '__main__':
         assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
         opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
         opt.name = 'evolve' if opt.evolve else opt.name
-        opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
+        # opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
+        opt.save_dir = Path(opt.project + f"/train-client{opt.client_rank}/")
+
 
     # DDP mode
     opt.total_batch_size = opt.batch_size
